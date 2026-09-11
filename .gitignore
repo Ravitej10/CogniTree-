@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+
+# Build and caches
+dist/
+frontend/dist/
+__pycache__/
+backend/__pycache__/
+backend/*/__pycache__/
+*.pyc
+.pytest_cache/
+backend/.pytest_cache/
+
+# Local databases & persistent vectors
+*.db
+backend/cognitree.db
+cognitree.db
+chroma_data/
+backend/chroma_data/
+
+# Uploads & logs
+uploaded_documents/
+backend/uploaded_documents/
+*.log
+
+# Environment variables & secrets
+.env
+backend/.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

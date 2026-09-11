@@ -1,0 +1,30 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Database
+sqlalchemy==2.0.35
+alembic==1.13.2
+
+# Auth
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.9
+
+# Config
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Ingestion
+pdfplumber==0.11.4
+pypdf==4.3.1
+langchain==0.3.1
+langchain-text-splitters==0.3.0
+
+# Embeddings + vector store
+sentence-transformers==3.1.1
+chromadb==0.5.5
+
+# LLM question generation
+google-generativeai==0.8.2
+instructor==1.4.3
