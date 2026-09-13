@@ -10,7 +10,6 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     full_name: Optional[str] = None
-    is_teacher: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -27,7 +26,6 @@ class UserResponse(BaseModel):
     id: int
     email: EmailStr
     full_name: Optional[str]
-    is_teacher: bool
 
     class Config:
         from_attributes = True

@@ -31,7 +31,7 @@ const PROBLEMS = [
   {
     label: "03",
     title: "Built from your materials",
-    body: "Every question is generated from the textbooks and notes your teacher actually assigned.",
+    body: "Every question is generated from the textbooks, slides, and notes you actually study.",
   },
   {
     label: "04",

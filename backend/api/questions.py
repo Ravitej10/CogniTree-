@@ -47,9 +47,6 @@ def generate_questions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not current_user.is_teacher:
-        raise HTTPException(status_code=403, detail="Only teachers can generate questions.")
-
     from services.question_factory import generate_and_store
 
     generated = []

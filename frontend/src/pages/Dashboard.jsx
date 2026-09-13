@@ -204,9 +204,6 @@ export default function Dashboard() {
               <span className="font-medium text-[#14231C]">
                 {user.full_name || user.email.split("@")[0]}
               </span>
-              <span className="font-mono text-[10px] text-[#8B9A8C] uppercase">
-                {user.is_teacher ? "Teacher" : "Student"}
-              </span>
             </div>
 
             <button

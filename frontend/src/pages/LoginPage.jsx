@@ -20,16 +20,6 @@ export default function LoginPage() {
     }
   }, []);
 
-  function handleDemoFill(role) {
-    setError("");
-    if (role === "student") {
-      setEmail("student@cognitree.edu");
-      setPassword("password123");
-    } else if (role === "teacher") {
-      setEmail("teacher@cognitree.edu");
-      setPassword("password123");
-    }
-  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -182,40 +172,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Quick Demo Credentials Pill Bar */}
-          <div className="mt-6 rounded-xl border border-[#D8DED4] bg-white p-3.5 shadow-xs">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-mono text-xs uppercase tracking-wider text-[#8B9A8C] flex items-center gap-1.5">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-                  <polyline points="10 17 15 12 10 7"/>
-                  <line x1="15" y1="12" x2="3" y2="12"/>
-                </svg>
-                Quick Demo Fill
-              </span>
-              <span className="text-[11px] text-[#8B9A8C]">Click to auto-fill</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoFill("student")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#D8DED4] bg-[#F7F8F4] px-2.5 py-1 text-xs font-medium text-[#14231C] transition hover:border-[#2F6B4F] hover:bg-white"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-[#2F6B4F]"></span>
-                Student Demo
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoFill("teacher")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#D8DED4] bg-[#F7F8F4] px-2.5 py-1 text-xs font-medium text-[#14231C] transition hover:border-[#2F6B4F] hover:bg-white"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-[#E2A73E]"></span>
-                Teacher Demo
-              </button>
-            </div>
-          </div>
 
-          {/* Error Alert Box */}
           {error && (
             <div
               role="alert"
@@ -379,17 +336,10 @@ export default function LoginPage() {
             </div>
             <div className="mt-4 space-y-3 text-sm text-[#3D4A40] leading-relaxed">
               <p>
-                In the demo environment, you can sign in directly using the pre-configured accounts or create a new student account at{" "}
+                If you have forgotten your password, please contact your administrator or create a new account at{" "}
                 <a href="/signup" className="font-semibold text-[#2F6B4F] underline">
                   Sign up
                 </a>.
-              </p>
-              <p className="rounded-lg bg-[#F7F8F4] p-3 text-xs text-[#8B9A8C] border border-[#D8DED4]">
-                Default demo accounts:
-                <br />
-                • Student: <span className="font-mono text-[#14231C]">student@cognitree.edu</span> / <span className="font-mono text-[#14231C]">password123</span>
-                <br />
-                • Teacher: <span className="font-mono text-[#14231C]">teacher@cognitree.edu</span> / <span className="font-mono text-[#14231C]">password123</span>
               </p>
             </div>
             <div className="mt-6 flex justify-end">
