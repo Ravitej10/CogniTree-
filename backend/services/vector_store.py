@@ -32,23 +32,35 @@ def _init_sqlite_store():
 
 _init_sqlite_store()
 
-# Try initializing ChromaDB if available
+# Chroma and the embedding model are initialized only when semantic retrieval
+# is actually needed. Document quiz generation reads already-stored chunks
+# directly from SQLite and must not block on a Hugging Face model download.
 _chroma_collection = None
-try:
-    import chromadb
-    from chromadb.utils import embedding_functions
+_chroma_initialized = False
 
-    _chroma_client = chromadb.PersistentClient(path=str(_PERSIST_DIR))
-    _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=settings.embedding_model
-    )
-    _chroma_collection = _chroma_client.get_or_create_collection(
-        name="course_chunks",
-        embedding_function=_embedding_fn,
-    )
-except Exception as e:
-    # ChromaDB not installed or embedding model not downloaded yet - fallback to sqlite store
-    _chroma_collection = None
+
+def _get_chroma_collection():
+    global _chroma_collection, _chroma_initialized
+    if _chroma_initialized:
+        return _chroma_collection
+
+    _chroma_initialized = True
+    try:
+        import chromadb
+        from chromadb.utils import embedding_functions
+
+        client = chromadb.PersistentClient(path=str(_PERSIST_DIR))
+        embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=settings.embedding_model
+        )
+        _chroma_collection = client.get_or_create_collection(
+            name="course_chunks",
+            embedding_function=embedding_fn,
+        )
+    except Exception as exc:
+        print(f"[VectorStore] ChromaDB unavailable; using SQLite fallback: {exc}")
+        _chroma_collection = None
+    return _chroma_collection
 
 
 def add_chunks(document_id: int, chunks: list[str]) -> int:
@@ -71,11 +83,12 @@ def add_chunks(document_id: int, chunks: list[str]) -> int:
     conn.close()
 
     # 2. Store in ChromaDB if available
-    if _chroma_collection is not None:
+    chroma_collection = _get_chroma_collection()
+    if chroma_collection is not None:
         try:
             ids = [f"doc{document_id}-chunk{i}" for i in range(len(chunks))]
             metadatas = [{"document_id": document_id, "chunk_index": i} for i in range(len(chunks))]
-            _chroma_collection.add(ids=ids, documents=chunks, metadatas=metadatas)
+            chroma_collection.add(ids=ids, documents=chunks, metadatas=metadatas)
         except Exception as e:
             print(f"[VectorStore] ChromaDB add warning: {e}")
 
@@ -84,10 +97,11 @@ def add_chunks(document_id: int, chunks: list[str]) -> int:
 
 def query_by_topic(topic_keywords: str, n_results: int = 5, document_id: int | None = None) -> list[str]:
     """Returns the most relevant chunks for a topic or keyword query."""
-    if _chroma_collection is not None:
+    chroma_collection = _get_chroma_collection()
+    if chroma_collection is not None:
         try:
             where_clause = {"document_id": document_id} if document_id is not None else None
-            results = _chroma_collection.query(
+            results = chroma_collection.query(
                 query_texts=[topic_keywords],
                 n_results=n_results,
                 where=where_clause,
@@ -145,4 +159,3 @@ def get_all_chunks_for_document(document_id: int) -> list[str]:
     rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows]
-

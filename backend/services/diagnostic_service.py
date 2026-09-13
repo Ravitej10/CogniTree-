@@ -16,10 +16,11 @@ from core.schemas import MatrixCell
 
 def compute_matrix(db: Session, user_id: int) -> list[MatrixCell]:
     """Aggregates every response a student has ever given, grouped by
-    topic and skill type, into accuracy cells."""
+    topic, subtopic, and skill type, into accuracy cells."""
     rows = (
         db.query(
             Question.topic,
+            Question.subtopic,
             Question.skill_type,
             func.count(Response.id).label("attempted"),
             func.sum(case((Response.is_correct.is_(True), 1), else_=0)).label("correct"),
@@ -27,22 +28,25 @@ def compute_matrix(db: Session, user_id: int) -> list[MatrixCell]:
         .join(Response, Response.question_id == Question.id)
         .join(QuizSession, QuizSession.id == Response.session_id)
         .filter(QuizSession.user_id == user_id)
-        .group_by(Question.topic, Question.skill_type)
+        .group_by(Question.topic, Question.subtopic, Question.skill_type)
         .all()
     )
 
     cells: list[MatrixCell] = []
-    for topic, skill_type, attempted, correct in rows:
+    for topic, subtopic, skill_type, attempted, correct in rows:
         correct = correct or 0
         accuracy = correct / attempted if attempted else 0.0
+        has_sufficient_evidence = attempted >= settings.diagnostic_min_attempts
         cells.append(
             MatrixCell(
                 topic=topic,
+                subtopic=subtopic,
                 skill_type=skill_type.value if hasattr(skill_type, "value") else skill_type,
                 correct=correct,
                 attempted=attempted,
                 accuracy=round(accuracy, 3),
-                is_gap=accuracy < settings.mastery_threshold,
+                has_sufficient_evidence=has_sufficient_evidence,
+                is_gap=has_sufficient_evidence and accuracy < settings.mastery_threshold,
             )
         )
     return cells

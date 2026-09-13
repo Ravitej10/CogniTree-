@@ -14,6 +14,9 @@ class Settings(BaseSettings):
 
     # LLM
     google_api_key: str = ""
+    google_model: str = "gemini-3.8-flash"
+    llm_generation_attempts: int = 3
+    llm_request_timeout_seconds: int = 30
 
     # Vector store
     chroma_persist_dir: str = "./chroma_data"
@@ -25,6 +28,7 @@ class Settings(BaseSettings):
 
     # Diagnostics
     mastery_threshold: float = 0.70
+    diagnostic_min_attempts: int = 2
     quiz_session_length: int = 10
 
 

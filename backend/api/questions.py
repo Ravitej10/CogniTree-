@@ -47,15 +47,19 @@ def generate_questions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from services.question_factory import generate_and_store
+    from services.question_factory import QuestionGenerationError, generate_and_store
 
     generated = []
-    for _ in range(payload.count):
-        question = generate_and_store(
-            db, payload.topic, payload.subtopic, payload.source_document_id
-        )
-        if question is not None:
-            generated.append(question)
+    try:
+        for _ in range(payload.count):
+            question = generate_and_store(
+                db, payload.topic, payload.subtopic, payload.source_document_id
+            )
+            if question is not None:
+                generated.append(question)
+    except QuestionGenerationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     if not generated:
         raise HTTPException(

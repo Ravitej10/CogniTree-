@@ -1,4 +1,5 @@
 import random
+from collections import defaultdict
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
@@ -19,9 +20,33 @@ from core.schemas import (
 router = APIRouter(prefix="/api/quiz", tags=["quiz"])
 
 
+def _balanced_sample(questions: list[Question], count: int) -> list[Question]:
+    """Round-robins across subtopic/skill cells instead of over-sampling one tag."""
+    groups: dict[tuple[str, str], list[Question]] = defaultdict(list)
+    for question in questions:
+        skill = question.skill_type.value if hasattr(question.skill_type, "value") else str(question.skill_type)
+        groups[(question.subtopic, skill)].append(question)
+    for group in groups.values():
+        random.shuffle(group)
+
+    keys = list(groups)
+    random.shuffle(keys)
+    selected: list[Question] = []
+    while keys and len(selected) < count:
+        next_keys = []
+        for key in keys:
+            if groups[key] and len(selected) < count:
+                selected.append(groups[key].pop())
+            if groups[key]:
+                next_keys.append(key)
+        keys = next_keys
+    return selected
+
+
 @router.post("/start", response_model=StartQuizResponse)
 def start_quiz(
     topic: Optional[str] = Query(None, description="Optional topic filter"),
+    subtopic: Optional[str] = Query(None, description="Optional fine-grained tag filter"),
     document_id: Optional[int] = Query(None, description="Optional source document filter"),
     count: Optional[int] = Query(10, ge=1, le=20, description="Number of questions (max 20)"),
     db: Session = Depends(get_db),
@@ -31,27 +56,23 @@ def start_quiz(
     query = db.query(Question)
     if topic:
         query = query.filter(Question.topic == topic)
+    if subtopic:
+        query = query.filter(Question.subtopic == subtopic)
     if document_id:
         query = query.filter(Question.source_document_id == document_id)
 
     questions_pool = query.all()
     if not questions_pool:
-        # If document quiz requested and no questions yet, try generating from document chunks
+        target_desc = f" for {topic}" if topic else (f" for document #{document_id}" if document_id else "")
+        detail = f"No questions found{target_desc}."
         if document_id:
-            from services.question_factory import generate_from_document_chunks
-            questions_pool = generate_from_document_chunks(db, document_id, count=min(count or 10, 20))
-        
-        if not questions_pool:
-            target_desc = f" for {topic}" if topic else (f" for document #{document_id}" if document_id else "")
-            raise HTTPException(
-                status_code=404,
-                detail=f"No questions found{target_desc}."
-            )
+            detail += " Generate questions from the document before starting its quiz."
+        raise HTTPException(status_code=404, detail=detail)
 
     target_count = min(count or 10, 20)
     target_count = max(1, min(len(questions_pool), target_count))
 
-    sampled_questions = random.sample(questions_pool, target_count)
+    sampled_questions = _balanced_sample(questions_pool, target_count)
 
     session = QuizSession(user_id=current_user.id, is_adaptive=False)
     db.add(session)
@@ -166,4 +187,3 @@ def get_quiz_review(
     current_user: User = Depends(get_current_user),
 ):
     return complete_quiz(session_id=session_id, db=db, current_user=current_user)
-

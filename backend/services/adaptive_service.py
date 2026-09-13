@@ -34,6 +34,7 @@ def build_remediation_quiz(
     for cell in gap_cells:
         stmt = select(Question).where(
             Question.topic == cell.topic,
+            Question.subtopic == cell.subtopic,
             Question.skill_type == cell.skill_type,
         )
         matches = db.execute(stmt).scalars().all()

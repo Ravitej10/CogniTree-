@@ -1,18 +1,23 @@
 """Phase 2: Question Generation Factory.
 
 Generates schema-validated questions grounded in curriculum topics or uploaded
-course documents. Supports Gemini API with JSON structure validation and
-includes a grounded extractive question generator for offline/resilient use.
+course documents. Generation fails explicitly when Gemini is unavailable or
+returns invalid output; synthetic fallback questions are never stored.
 """
 
 import json
 import random
 import re
+import time
 from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.models import Question, SkillType, SourceDocument
 from core.schemas import GeneratedQuestion
+
+
+class QuestionGenerationError(RuntimeError):
+    """Raised when Gemini cannot produce a valid question."""
 
 # Try configuring Gemini if API key is present
 _gemini_model = None
@@ -20,7 +25,7 @@ if settings.google_api_key and settings.google_api_key.strip():
     try:
         import google.generativeai as genai
         genai.configure(api_key=settings.google_api_key)
-        _gemini_model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        _gemini_model = genai.GenerativeModel(model_name=settings.google_model)
     except Exception as e:
         print(f"[QuestionFactory] Gemini init warning: {e}")
 
@@ -52,68 +57,130 @@ Respond ONLY with valid JSON in this exact structure:
 """
 
 
-def _generate_with_gemini(prompt: str) -> dict | None:
-    """Calls Gemini with JSON instructions and parses output."""
+def verify_gemini_connection() -> dict:
+    """Checks that the configured model exists and supports text generation."""
     if _gemini_model is None:
-        return None
+        raise QuestionGenerationError(
+            "Gemini is not initialized. Check GOOGLE_API_KEY and GOOGLE_MODEL."
+        )
 
     try:
-        response = _gemini_model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
+        import google.generativeai as genai
+        available = {
+            model.name.removeprefix("models/")
+            for model in genai.list_models()
+            if "generateContent" in model.supported_generation_methods
+        }
+    except Exception as exc:
+        raise QuestionGenerationError(
+            f"Could not query Gemini model availability: {exc}"
+        ) from exc
+
+    if settings.google_model not in available:
+        raise QuestionGenerationError(
+            f"Configured model '{settings.google_model}' is unavailable for generateContent."
         )
-        text = response.text.strip()
-        # Clean JSON markdown fences if present
-        text = re.sub(r"^```json\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-        data = json.loads(text)
-        if isinstance(data, list) and data:
-            data = data[0]
-        return data
-    except Exception as e:
-        print(f"[QuestionFactory] Gemini generation warning: {e}")
-        return None
+
+    return {"connected": True, "model": settings.google_model}
 
 
-def _heuristic_generate_from_chunk(chunk: str, topic: str, subtopic: str, doc_name: str = "") -> dict:
-    """Intelligent fallback question generator that crafts concept questions from text chunks."""
-    sentences = [s.strip() for s in re.split(r"[.!?]\s+", chunk) if len(s.strip()) > 35]
-    if not sentences:
-        sentences = [chunk[:200]]
+def _is_non_retryable_provider_error(exc: Exception) -> bool:
+    """Returns True for errors that another immediate request cannot fix."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "400 ",
+            "401 ",
+            "403 ",
+            "404 ",
+            "429 ",
+            "invalid api key",
+            "permission denied",
+            "quota exceeded",
+        )
+    )
 
-    primary_sentence = sentences[0]
-    is_application = len(sentences) > 2 or "calculate" in chunk.lower() or "algorithm" in chunk.lower() or "time" in chunk.lower()
-    skill_type = "application" if is_application else "memorization"
 
-    # Extract key keywords or nouns
-    words = re.findall(r"\b[A-Za-z]{4,}\b", primary_sentence)
-    key_concept = words[0] if words else "Concept"
-    if len(words) > 1 and words[1].lower() not in ["this", "that", "with", "from", "when", "then"]:
-        key_concept += f" {words[1]}"
+def _provider_error_message(exc: Exception) -> str:
+    message = str(exc)
+    lowered = message.lower()
+    if "429" in lowered or "quota exceeded" in lowered:
+        return (
+            "Gemini quota exceeded. Wait for the quota to reset, enable billing, "
+            "or configure another supported model with available quota."
+        )
+    if "404" in lowered:
+        return f"Gemini model '{settings.google_model}' was not found or is unavailable."
+    if "401" in lowered or "403" in lowered or "api key" in lowered:
+        return "Gemini authentication failed. Check GOOGLE_API_KEY and project permissions."
+    return message
 
-    question_text = f"According to the material on {subtopic or topic}, which statement accurately describes the function and behavior of {key_concept}?"
-    correct_opt = primary_sentence if len(primary_sentence) < 140 else primary_sentence[:137] + "..."
 
-    # Create plausible distractors
-    distractors = [
-        f"It operates in reverse order by default, bypassing standard {topic} constraints.",
-        f"It requires continuous linear scanning regardless of underlying indexing or caching.",
-        f"It is solely deprecated in modern implementations due to non-deterministic overhead."
-    ]
+def _request_gemini_json(prompt: str) -> dict | list:
+    """Calls Gemini and returns one parsed JSON object or array."""
+    if _gemini_model is None:
+        raise QuestionGenerationError(
+            "Gemini is not initialized. Check GOOGLE_API_KEY and GOOGLE_MODEL."
+        )
 
-    all_opts = [correct_opt] + distractors
-    random.shuffle(all_opts)
-    answer_idx = all_opts.index(correct_opt)
+    last_error = None
+    for attempt in range(settings.llm_generation_attempts):
+        try:
+            response = _gemini_model.generate_content(
+                prompt,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.3,
+                    "max_output_tokens": 8192,
+                },
+                request_options={
+                    "timeout": settings.llm_request_timeout_seconds,
+                    # Outer retries below can distinguish transient failures from
+                    # quota/auth/model errors; disable the SDK's opaque retry loop.
+                    "retry": None,
+                },
+            )
+            text = response.text.strip()
+            text = re.sub(r"^```json\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+            data = json.loads(text)
+            if not isinstance(data, (dict, list)):
+                raise ValueError("Gemini did not return a JSON object or array.")
+            return data
+        except Exception as exc:
+            last_error = exc
+            if _is_non_retryable_provider_error(exc):
+                raise QuestionGenerationError(_provider_error_message(exc)) from exc
+            if attempt < settings.llm_generation_attempts - 1:
+                time.sleep(2**attempt)
 
-    return {
-        "topic": topic,
-        "subtopic": subtopic,
-        "skill_type": skill_type,
-        "question_text": question_text,
-        "options": all_opts,
-        "answer_index": answer_idx,
-        "explanation": f"Based on the course context: \"{primary_sentence}\".",
-    }
+    raise QuestionGenerationError(
+        f"Gemini generation failed after {settings.llm_generation_attempts} attempts: "
+        f"{_provider_error_message(last_error)}"
+    ) from last_error
+
+
+def _generate_with_gemini(prompt: str) -> dict:
+    """Generates and parses exactly one question object."""
+    data = _request_gemini_json(prompt)
+    if not isinstance(data, dict):
+        raise QuestionGenerationError("Gemini returned an array when one question was requested.")
+    return data
+
+
+def _generate_many_with_gemini(prompt: str, expected_count: int) -> list[dict]:
+    """Generates a batch of question objects in one provider request."""
+    data = _request_gemini_json(prompt)
+    if not isinstance(data, list):
+        raise QuestionGenerationError("Gemini returned an object when a question array was requested.")
+    if len(data) != expected_count:
+        raise QuestionGenerationError(
+            f"Gemini returned {len(data)} questions; expected exactly {expected_count}."
+        )
+    if not all(isinstance(item, dict) for item in data):
+        raise QuestionGenerationError("Gemini returned a non-object item in the question array.")
+    return data
 
 
 def generate_question(topic: str, subtopic: str, document_id: int | None = None) -> GeneratedQuestion | None:
@@ -126,39 +193,20 @@ def generate_question(topic: str, subtopic: str, document_id: int | None = None)
 
     context_text = "\n\n".join(context_chunks)
 
-    # 1. Try Gemini LLM
-    if _gemini_model:
-        prompt = _PROMPT_TEMPLATE.format(
-            topic=topic,
-            subtopic=subtopic,
-            context=context_text[:3000],
-        )
-        parsed = _generate_with_gemini(prompt)
-        if parsed and "question_text" in parsed and "options" in parsed:
-            try:
-                return GeneratedQuestion(
-                    topic=topic,
-                    subtopic=subtopic,
-                    skill_type=parsed.get("skill_type", "memorization"),
-                    question_text=parsed["question_text"],
-                    options=parsed["options"][:4],
-                    answer_index=parsed.get("answer_index", 0),
-                    explanation=parsed.get("explanation", f"Reference: {subtopic} in {topic}."),
-                )
-            except Exception as e:
-                print(f"[QuestionFactory] Validation error: {e}")
-
-    # 2. Resilient fallback generator
-    raw = _heuristic_generate_from_chunk(context_chunks[0], topic, subtopic)
-    return GeneratedQuestion(
-        topic=raw["topic"],
-        subtopic=raw["subtopic"],
-        skill_type=raw["skill_type"],
-        question_text=raw["question_text"],
-        options=raw["options"],
-        answer_index=raw["answer_index"],
-        explanation=raw["explanation"],
+    prompt = _PROMPT_TEMPLATE.format(
+        topic=topic,
+        subtopic=subtopic,
+        context=context_text[:6000],
     )
+    parsed = _generate_with_gemini(prompt)
+    try:
+        return GeneratedQuestion.model_validate(
+            {**parsed, "topic": topic, "subtopic": subtopic}
+        )
+    except Exception as exc:
+        raise QuestionGenerationError(
+            f"Gemini returned an invalid question: {exc}"
+        ) from exc
 
 
 def generate_and_store(
@@ -206,45 +254,96 @@ def generate_from_document_chunks(
         return []
 
     doc_title = doc.filename.rsplit(".", 1)[0].replace("_", " ").title()
-    selected_chunks = chunks[:count] if len(chunks) <= count else random.sample(chunks, count)
-    created_questions: list[Question] = []
+    # Four questions per tag gives two observations for each of the two skill
+    # dimensions. Smaller requested batches intentionally use fewer tags rather
+    # than producing one-off tags that cannot support diagnosis.
+    tag_count = max(1, min(4, len(chunks), count // 4 or 1))
+    selected_chunks = random.sample(chunks, tag_count)
+    base_size, remainder = divmod(count, tag_count)
+    group_sizes = [base_size + (1 if index < remainder else 0) for index in range(tag_count)]
+    source_sections = "\n\n".join(
+        f"[TAG GROUP {index + 1} — CREATE {group_sizes[index]} QUESTIONS]\n{chunk[:2500]}"
+        for index, chunk in enumerate(selected_chunks)
+    )
+    prompt = f"""You are an expert educator generating an assessment from "{doc.filename}".
 
-    for i, chunk in enumerate(selected_chunks):
-        subtopic_name = f"Section {i+1}: {doc_title[:24]}"
-        
-        # Try LLM or fallback generator
-        q_data = None
-        if _gemini_model:
-            prompt = f"""You are generating an assessment question based strictly on this document excerpt from "{doc.filename}":
----
-{chunk[:2500]}
----
-Generate 1 multiple choice question with 4 options and 1 correct answer.
-Respond in JSON format:
-{{
-  "topic": "{doc_title[:30]}",
-  "subtopic": "{subtopic_name}",
-  "skill_type": "application",
-  "question_text": "...",
-  "options": ["A", "B", "C", "D"],
-  "answer_index": 0,
-  "explanation": "..."
-}}
+Create exactly {count} multiple-choice questions using the numbered tag groups below. For each group, first identify one meaningful, specific concept tag, then create the stated number of distinct questions for that same tag.
+
+{source_sections}
+
+Requirements for every question:
+- Use clear, corrected English; never reproduce OCR corruption or truncated text.
+- Test a meaningful technical concept, not an arbitrary phrase from the excerpt.
+- Provide exactly 4 distinct, plausible options and exactly 1 correct answer.
+- Within every group of 4 questions, create exactly 2 "memorization" questions and 2 "application" questions.
+- All questions from the same group must use exactly the same concise subtopic tag.
+- Questions must test different aspects or scenarios; do not paraphrase duplicates.
+- Provide a concise explanation supported by the source.
+- Do not use generic distractors about reverse order, deprecation, or linear scanning unless the source explicitly supports them.
+
+Respond ONLY with a JSON array containing exactly {count} objects, grouped in source order:
+[
+  {{
+    "topic": "{doc_title[:30]}",
+    "subtopic": "specific shared concept tag",
+    "skill_type": "memorization",
+    "question_text": "...",
+    "options": ["...", "...", "...", "..."],
+    "answer_index": 0,
+    "explanation": "..."
+  }}
+]
 """
-            q_data = _generate_with_gemini(prompt)
+    batch = _generate_many_with_gemini(prompt, count)
+    generated_questions: list[GeneratedQuestion] = []
 
-        if not q_data or "options" not in q_data or len(q_data["options"]) < 4:
-            q_data = _heuristic_generate_from_chunk(chunk, doc_title[:30], subtopic_name, doc.filename)
+    for index, q_data in enumerate(batch):
+        try:
+            generated = GeneratedQuestion.model_validate(q_data)
+        except Exception as exc:
+            raise QuestionGenerationError(
+                f"Gemini returned an invalid question at batch position {index + 1}: {exc}"
+            ) from exc
+        if len(set(generated.options)) != 4:
+            raise QuestionGenerationError(
+                f"Gemini returned duplicate options at batch position {index + 1}."
+            )
+        generated_questions.append(generated)
 
-        skill_enum = SkillType.APPLICATION if q_data.get("skill_type") == "application" else SkillType.MEMORIZATION
+    offset = 0
+    for group_index, group_size in enumerate(group_sizes):
+        group = generated_questions[offset : offset + group_size]
+        offset += group_size
+        subtopics = {question.subtopic.strip().casefold() for question in group}
+        if len(subtopics) != 1:
+            raise QuestionGenerationError(
+                f"Gemini used inconsistent subtopic tags in tag group {group_index + 1}."
+            )
+        if group_size >= 4:
+            skills = [question.skill_type for question in group]
+            if skills.count("memorization") < 2 or skills.count("application") < 2:
+                raise QuestionGenerationError(
+                    f"Gemini did not provide enough skill variety in tag group {group_index + 1}."
+                )
+
+    normalized_stems = {
+        re.sub(r"\W+", " ", question.question_text.casefold()).strip()
+        for question in generated_questions
+    }
+    if len(normalized_stems) != len(generated_questions):
+        raise QuestionGenerationError("Gemini returned duplicate questions in the batch.")
+
+    created_questions: list[Question] = []
+    for generated in generated_questions:
+        skill_enum = SkillType.APPLICATION if generated.skill_type == "application" else SkillType.MEMORIZATION
         question = Question(
-            topic=q_data.get("topic", doc_title[:30]),
-            subtopic=q_data.get("subtopic", subtopic_name),
+            topic=generated.topic,
+            subtopic=generated.subtopic,
             skill_type=skill_enum,
-            question_text=q_data["question_text"],
-            options=q_data["options"][:4],
-            answer_index=q_data.get("answer_index", 0),
-            explanation=q_data.get("explanation", f"Grounded in {doc.filename}"),
+            question_text=generated.question_text,
+            options=generated.options,
+            answer_index=generated.answer_index,
+            explanation=generated.explanation,
             source_document_id=document_id,
         )
         db.add(question)
@@ -255,4 +354,3 @@ Respond in JSON format:
         db.refresh(q)
 
     return created_questions
-

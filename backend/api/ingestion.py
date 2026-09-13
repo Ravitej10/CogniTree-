@@ -97,7 +97,7 @@ def reingest_document(
 @router.post("/{document_id}/generate-questions", response_model=list[QuestionWithAnswer])
 def generate_questions_from_doc(
     document_id: int,
-    count: int = Query(5, ge=1, le=20),
+    count: int = Query(16, ge=1, le=20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -106,13 +106,16 @@ def generate_questions_from_doc(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    from services.question_factory import generate_from_document_chunks
+    from services.question_factory import QuestionGenerationError, generate_from_document_chunks
 
-    generated = generate_from_document_chunks(db, document_id, count=count)
+    try:
+        generated = generate_from_document_chunks(db, document_id, count=count)
+    except QuestionGenerationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if not generated:
         raise HTTPException(
             status_code=422,
             detail="Could not generate questions. Ensure the document has completed ingestion.",
         )
     return generated
-

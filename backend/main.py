@@ -35,3 +35,11 @@ app.include_router(diagnostics.router)
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/health/llm")
+def llm_health_check():
+    """Performs a live provider check without exposing the API key."""
+    from services.question_factory import verify_gemini_connection
+
+    return verify_gemini_connection()

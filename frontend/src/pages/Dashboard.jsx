@@ -68,6 +68,7 @@ export default function Dashboard() {
     setQuizConfigModal({
       type,
       topic: options.topic || null,
+      subtopic: options.subtopic || null,
       documentId: options.documentId || null,
       docName: options.docName || null,
     });
@@ -75,7 +76,7 @@ export default function Dashboard() {
 
   async function launchConfiguredQuiz() {
     if (!quizConfigModal) return;
-    const { type, topic, documentId } = quizConfigModal;
+    const { type, topic, subtopic, documentId } = quizConfigModal;
     const count = Math.min(Math.max(Number(selectedQuestionCount) || 10, 1), 20);
 
     setQuizLoading(true);
@@ -98,9 +99,10 @@ export default function Dashboard() {
         });
       } else {
         // general diagnostic or topic-filtered quiz
-        const url = topic
-          ? `/api/quiz/start?topic=${encodeURIComponent(topic)}&count=${count}`
-          : `/api/quiz/start?count=${count}`;
+        const params = new URLSearchParams({ count: String(count) });
+        if (topic) params.set("topic", topic);
+        if (subtopic) params.set("subtopic", subtopic);
+        const url = `/api/quiz/start?${params.toString()}`;
         const data = await apiRequest(url, { method: "POST" });
         setActiveQuizSession({
           session_id: data.session_id,
@@ -376,9 +378,9 @@ export default function Dashboard() {
             {/* Weakness Breakdown Cards */}
             <WeaknessAnalysisCard
               gaps={gaps}
-              onStartRemediation={(topic) =>
+              onStartRemediation={(topic, subtopic) =>
                 topic
-                  ? openQuizConfig("topic", { topic, defaultCount: 8 })
+                  ? openQuizConfig("topic", { topic, subtopic, defaultCount: 8 })
                   : openQuizConfig("remediation", { defaultCount: 10 })
               }
             />
@@ -391,7 +393,7 @@ export default function Dashboard() {
                     Placement Topic &times; Cognitive Skill Matrix
                   </h3>
                   <p className="font-body text-xs text-[#8B9A8C] mt-1">
-                    Live breakdown of student accuracy on definitions (memorization) vs problem solving (application).
+                    Evidence-aware accuracy for each concept tag and cognitive skill.
                   </p>
                 </div>
               </div>
@@ -414,6 +416,7 @@ export default function Dashboard() {
                     <thead>
                       <tr className="border-b text-[#8B9A8C] font-mono" style={{ borderColor: "#D8DED4" }}>
                         <th className="py-3 px-4">Subject Branch</th>
+                        <th className="py-3 px-4">Concept Tag</th>
                         <th className="py-3 px-4">Cognitive Skill</th>
                         <th className="py-3 px-4">Attempts</th>
                         <th className="py-3 px-4">Accuracy</th>
@@ -424,12 +427,15 @@ export default function Dashboard() {
                     <tbody>
                       {cells.map((cell) => (
                         <tr
-                          key={`${cell.topic}-${cell.skill_type}`}
+                          key={`${cell.topic}-${cell.subtopic}-${cell.skill_type}`}
                           className="border-b transition hover:bg-[#F7F8F4]"
                           style={{ borderColor: "#D8DED4" }}
                         >
                           <td className="py-3.5 px-4 font-semibold text-[#14231C]">
                             {cell.topic}
+                          </td>
+                          <td className="py-3.5 px-4 text-[#3D4A40]">
+                            {cell.subtopic}
                           </td>
                           <td className="py-3.5 px-4 capitalize font-mono text-[#3D4A40]">
                             {cell.skill_type}
@@ -457,17 +463,17 @@ export default function Dashboard() {
                             <span
                               className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold"
                               style={{
-                                background: cell.is_gap ? "#FEF3C7" : "#E8F5E9",
-                                color: cell.is_gap ? "#B45309" : "#2F6B4F",
+                                background: !cell.has_sufficient_evidence ? "#ECEFF1" : cell.is_gap ? "#FEF3C7" : "#E8F5E9",
+                                color: !cell.has_sufficient_evidence ? "#546E7A" : cell.is_gap ? "#B45309" : "#2F6B4F",
                               }}
                             >
-                              {cell.is_gap ? "Weakness (Gap)" : "Mastered"}
+                              {!cell.has_sufficient_evidence ? "Needs More Evidence" : cell.is_gap ? "Weakness (Gap)" : "Mastered"}
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             <button
                               type="button"
-                              onClick={() => openQuizConfig("topic", { topic: cell.topic, defaultCount: 8 })}
+                              onClick={() => openQuizConfig("topic", { topic: cell.topic, subtopic: cell.subtopic, defaultCount: 8 })}
                               className="text-xs font-semibold text-[#2F6B4F] hover:underline"
                             >
                               Practice →
@@ -635,6 +641,12 @@ export default function Dashboard() {
               <div className="rounded-xl bg-[#F7F8F4] p-3 text-xs text-[#3D4A40] border" style={{ borderColor: "#D8DED4" }}>
                 💡 <span className="font-semibold">Exam Mode:</span> Correct answers and concept explanations will be detailed at the final completion review for wrong choices.
               </div>
+
+              {quizError && (
+                <div role="alert" className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] p-3 text-xs font-medium text-[#991B1B]">
+                  ⚠️ {quizError}
+                </div>
+              )}
             </div>
 
             <div className="mt-6 pt-3 border-t flex items-center justify-end gap-3" style={{ borderColor: "#D8DED4" }}>
@@ -675,4 +687,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

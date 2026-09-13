@@ -1,22 +1,50 @@
 import React from "react";
 
 export default function KnowledgeTreeMap({ cells, onSelectTopic }) {
-  // Group cells by topic
-  const topicMap = {};
+  // Aggregate fine-grained subtopic cells for this high-level overview.
+  const topicBuckets = {};
   cells.forEach((cell) => {
-    if (!topicMap[cell.topic]) {
-      topicMap[cell.topic] = { memorization: null, application: null };
+    if (!topicBuckets[cell.topic]) {
+      topicBuckets[cell.topic] = { memorization: [], application: [] };
     }
-    topicMap[cell.topic][cell.skill_type] = cell;
+    topicBuckets[cell.topic][cell.skill_type]?.push(cell);
   });
 
-  const allTopics = [
+  const aggregate = (items = []) => {
+    if (!items.length) return null;
+    const attempted = items.reduce((sum, item) => sum + item.attempted, 0);
+    const correct = items.reduce((sum, item) => sum + item.correct, 0);
+    const testedItems = items.filter((item) => item.has_sufficient_evidence);
+    return {
+      attempted,
+      correct,
+      accuracy: attempted ? correct / attempted : 0,
+      is_gap: testedItems.some((item) => item.is_gap),
+    };
+  };
+
+  const topicMap = Object.fromEntries(
+    Object.entries(topicBuckets).map(([topic, skills]) => [
+      topic,
+      {
+        memorization: aggregate(skills.memorization),
+        application: aggregate(skills.application),
+      },
+    ])
+  );
+
+  const catalogTopics = [
     { name: "Data Structures & Algorithms", icon: "💻", category: "Core CS (CLRS)" },
     { name: "Computer Networks", icon: "🌐", category: "Systems (Kurose & Ross)" },
     { name: "Database Management Systems", icon: "🗄️", category: "Databases (Korth)" },
     { name: "Operating Systems", icon: "⚙️", category: "Systems (Galvin)" },
     { name: "Object-Oriented Programming", icon: "🧩", category: "Design (GoF)" },
   ];
+  const knownNames = new Set(catalogTopics.map((topic) => topic.name));
+  const customTopics = Object.keys(topicMap)
+    .filter((name) => !knownNames.has(name))
+    .map((name) => ({ name, icon: "📘", category: "Uploaded course material" }));
+  const allTopics = [...catalogTopics, ...customTopics];
 
 
   return (

@@ -124,12 +124,17 @@ export default function ModulesView({ onStartTopicQuiz, onStartDocumentQuiz, onU
 
   async function handleGenerateFromDoc(doc) {
     setGeneratingDocId(doc.id);
+    setUploadError("");
+    setUploadSuccessMsg("");
     try {
+      const generated = await apiRequest(`/api/documents/${doc.id}/generate-questions?count=16`, {
+        method: "POST",
+      });
+      setUploadSuccessMsg(
+        `Generated ${generated.length} balanced questions across multiple concept tags from "${doc.filename}".`
+      );
       if (onStartDocumentQuiz) {
         onStartDocumentQuiz(doc.id, doc.filename);
-      } else {
-        await apiRequest(`/api/documents/${doc.id}/generate-questions?count=5`, { method: "POST" });
-        setUploadSuccessMsg(`Generated grounded assessment questions from "${doc.filename}"!`);
       }
     } catch (err) {
       setUploadError(err.message || "Failed to generate questions from document.");
@@ -357,4 +362,3 @@ export default function ModulesView({ onStartTopicQuiz, onStartDocumentQuiz, onU
     </div>
   );
 }
-

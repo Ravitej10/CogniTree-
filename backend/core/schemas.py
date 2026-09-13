@@ -104,11 +104,13 @@ class SubmitAnswerResponse(BaseModel):
 
 class MatrixCell(BaseModel):
     topic: str
+    subtopic: str
     skill_type: str
     correct: int
     attempted: int
     accuracy: float
-    is_gap: bool  # accuracy < mastery_threshold
+    has_sufficient_evidence: bool
+    is_gap: bool
 
 
 class DiagnosticMatrixResponse(BaseModel):
@@ -143,4 +145,3 @@ class AdaptiveQuizResponse(BaseModel):
     session_id: int
     targeted_gaps: list[MatrixCell]
     questions: list[QuestionResponse]
-

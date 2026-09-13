@@ -81,7 +81,7 @@ export default function WeaknessAnalysisCard({ gaps, onStartRemediation }) {
 
           return (
             <div
-              key={`${gap.topic}-${gap.skill_type}-${index}`}
+              key={`${gap.topic}-${gap.subtopic}-${gap.skill_type}-${index}`}
               className="flex flex-col justify-between rounded-xl border p-4.5 bg-[#FFFDF9] transition-all hover:shadow-xs"
               style={{ borderColor: "#F3D6B5" }}
             >
@@ -92,8 +92,9 @@ export default function WeaknessAnalysisCard({ gaps, onStartRemediation }) {
                       {gap.topic}
                     </span>
                     <h4 className="font-display text-base font-semibold text-[#14231C] mt-0.5">
-                      {gap.skill_type === "application" ? "Application & Problem-Solving" : "Memorization & Definitions"}
+                      {gap.subtopic}
                     </h4>
+                    <p className="text-xs text-[#8B9A8C] mt-0.5 capitalize">{gap.skill_type}</p>
                   </div>
                   <span
                     className="rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold"
@@ -135,10 +136,10 @@ export default function WeaknessAnalysisCard({ gaps, onStartRemediation }) {
               <div className="mt-4 pt-3 border-t border-[#F3D6B5] flex justify-end">
                 <button
                   type="button"
-                  onClick={() => onStartRemediation(gap.topic)}
+                  onClick={() => onStartRemediation(gap.topic, gap.subtopic)}
                   className="text-xs font-semibold text-[#2F6B4F] hover:underline flex items-center gap-1"
                 >
-                  Practice {gap.topic} →
+                  Practice this tag →
                 </button>
               </div>
             </div>
