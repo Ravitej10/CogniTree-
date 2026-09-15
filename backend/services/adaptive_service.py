@@ -32,11 +32,15 @@ def build_remediation_quiz(
     all_gap_candidates: list[Question] = []
 
     for cell in gap_cells:
-        stmt = select(Question).where(
+        conditions = [
             Question.topic == cell.topic,
-            Question.subtopic == cell.subtopic,
             Question.skill_type == cell.skill_type,
-        )
+        ]
+        if cell.tag_id is not None:
+            conditions.append(Question.tag_id == cell.tag_id)
+        else:
+            conditions.append(Question.subtopic == cell.subtopic)
+        stmt = select(Question).where(*conditions)
         matches = db.execute(stmt).scalars().all()
         for q in matches:
             all_gap_candidates.append(q)

@@ -127,7 +127,7 @@ export default function ModulesView({ onStartTopicQuiz, onStartDocumentQuiz, onU
     setUploadError("");
     setUploadSuccessMsg("");
     try {
-      const generated = await apiRequest(`/api/documents/${doc.id}/generate-questions?count=16`, {
+      const generated = await apiRequest(`/api/documents/${doc.id}/generate-questions?count=12`, {
         method: "POST",
       });
       setUploadSuccessMsg(

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     google_model: str = "gemini-3.8-flash"
     llm_generation_attempts: int = 3
-    llm_request_timeout_seconds: int = 30
+    llm_request_timeout_seconds: int = 60
 
     # Vector store
     chroma_persist_dir: str = "./chroma_data"

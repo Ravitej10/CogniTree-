@@ -44,6 +44,56 @@ class DocumentResponse(BaseModel):
         from_attributes = True
 
 
+# ---- Canonical concept taxonomy ----
+
+class TagAliasResponse(BaseModel):
+    id: int
+    alias: str
+
+    class Config:
+        from_attributes = True
+
+
+class ConceptTagResponse(BaseModel):
+    id: int
+    name: str
+    normalized_name: str
+    definition: str
+    subject: str
+    parent_tag_id: Optional[int]
+    status: str
+    aliases: list[TagAliasResponse] = Field(default_factory=list)
+    question_count: int = 0
+    evidence_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentTagEvidenceResponse(BaseModel):
+    id: int
+    document_id: int
+    tag_id: int
+    chunk_index: int
+    source_excerpt: str
+    confidence: float
+    tag: ConceptTagResponse
+
+    class Config:
+        from_attributes = True
+
+
+class ResolveTagRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+    definition: str = Field(min_length=5)
+    subject: str = Field(min_length=2, max_length=255)
+
+
+class ResolveTagResponse(BaseModel):
+    match_method: Literal["exact", "alias", "similar", "created"]
+    tag: ConceptTagResponse
+
+
 # ---- Question generation (this is also the schema handed to the LLM
 #      via `instructor` — see services/question_factory.py) ----
 
@@ -64,6 +114,7 @@ class GeneratedQuestion(BaseModel):
 
 class QuestionResponse(BaseModel):
     id: int
+    tag_id: Optional[int] = None
     topic: str
     subtopic: str
     skill_type: str
@@ -103,6 +154,7 @@ class SubmitAnswerResponse(BaseModel):
 # ---- Diagnostics ----
 
 class MatrixCell(BaseModel):
+    tag_id: Optional[int] = None
     topic: str
     subtopic: str
     skill_type: str

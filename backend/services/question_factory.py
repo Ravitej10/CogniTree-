@@ -221,7 +221,16 @@ def generate_and_store(
         return None
 
     skill_enum = SkillType.APPLICATION if generated.skill_type == "application" else SkillType.MEMORIZATION
+    from services.tag_service import resolve_canonical_tag
+
+    tag, _ = resolve_canonical_tag(
+        db,
+        name=generated.subtopic,
+        definition=generated.explanation,
+        subject=generated.topic,
+    )
     question = Question(
+        tag_id=tag.id,
         topic=generated.topic,
         subtopic=generated.subtopic,
         skill_type=skill_enum,
@@ -258,7 +267,8 @@ def generate_from_document_chunks(
     # dimensions. Smaller requested batches intentionally use fewer tags rather
     # than producing one-off tags that cannot support diagnosis.
     tag_count = max(1, min(4, len(chunks), count // 4 or 1))
-    selected_chunks = random.sample(chunks, tag_count)
+    selected_chunk_indices = random.sample(range(len(chunks)), tag_count)
+    selected_chunks = [chunks[index] for index in selected_chunk_indices]
     base_size, remainder = divmod(count, tag_count)
     group_sizes = [base_size + (1 if index < remainder else 0) for index in range(tag_count)]
     source_sections = "\n\n".join(
@@ -311,6 +321,9 @@ Respond ONLY with a JSON array containing exactly {count} objects, grouped in so
         generated_questions.append(generated)
 
     offset = 0
+    resolved_tags = []
+    from services.tag_service import link_document_evidence, resolve_canonical_tag
+
     for group_index, group_size in enumerate(group_sizes):
         group = generated_questions[offset : offset + group_size]
         offset += group_size
@@ -325,6 +338,22 @@ Respond ONLY with a JSON array containing exactly {count} objects, grouped in so
                 raise QuestionGenerationError(
                     f"Gemini did not provide enough skill variety in tag group {group_index + 1}."
                 )
+        representative = group[0]
+        tag, _ = resolve_canonical_tag(
+            db,
+            name=representative.subtopic,
+            definition=representative.explanation,
+            subject=representative.topic,
+        )
+        link_document_evidence(
+            db,
+            document_id=document_id,
+            tag_id=tag.id,
+            chunk_index=selected_chunk_indices[group_index],
+            source_excerpt=selected_chunks[group_index],
+            confidence=1.0,
+        )
+        resolved_tags.extend([tag] * group_size)
 
     normalized_stems = {
         re.sub(r"\W+", " ", question.question_text.casefold()).strip()
@@ -334,9 +363,10 @@ Respond ONLY with a JSON array containing exactly {count} objects, grouped in so
         raise QuestionGenerationError("Gemini returned duplicate questions in the batch.")
 
     created_questions: list[Question] = []
-    for generated in generated_questions:
+    for generated, tag in zip(generated_questions, resolved_tags, strict=True):
         skill_enum = SkillType.APPLICATION if generated.skill_type == "application" else SkillType.MEMORIZATION
         question = Question(
+            tag_id=tag.id,
             topic=generated.topic,
             subtopic=generated.subtopic,
             skill_type=skill_enum,

@@ -47,6 +47,7 @@ def _balanced_sample(questions: list[Question], count: int) -> list[Question]:
 def start_quiz(
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     subtopic: Optional[str] = Query(None, description="Optional fine-grained tag filter"),
+    tag_id: Optional[int] = Query(None, description="Optional immutable concept-tag filter"),
     document_id: Optional[int] = Query(None, description="Optional source document filter"),
     count: Optional[int] = Query(10, ge=1, le=20, description="Number of questions (max 20)"),
     db: Session = Depends(get_db),
@@ -58,6 +59,8 @@ def start_quiz(
         query = query.filter(Question.topic == topic)
     if subtopic:
         query = query.filter(Question.subtopic == subtopic)
+    if tag_id:
+        query = query.filter(Question.tag_id == tag_id)
     if document_id:
         query = query.filter(Question.source_document_id == document_id)
 

@@ -14,7 +14,7 @@ export default function Dashboard() {
   const [error, setError] = useState("");
 
   // Quiz Launcher State
-  const [quizConfigModal, setQuizConfigModal] = useState(null); // { type: 'general' | 'topic' | 'remediation' | 'document', topic, documentId, docName }
+  const [quizConfigModal, setQuizConfigModal] = useState(null); // { type: 'general' | 'topic' | 'remediation' | 'document', topic, tagId, documentId, docName }
   const [selectedQuestionCount, setSelectedQuestionCount] = useState(10);
   const [activeQuizSession, setActiveQuizSession] = useState(null); // { session_id, questions, is_adaptive }
   const [quizLoading, setQuizLoading] = useState(false);
@@ -68,7 +68,7 @@ export default function Dashboard() {
     setQuizConfigModal({
       type,
       topic: options.topic || null,
-      subtopic: options.subtopic || null,
+      tagId: options.tagId || null,
       documentId: options.documentId || null,
       docName: options.docName || null,
     });
@@ -76,7 +76,7 @@ export default function Dashboard() {
 
   async function launchConfiguredQuiz() {
     if (!quizConfigModal) return;
-    const { type, topic, subtopic, documentId } = quizConfigModal;
+    const { type, topic, tagId, documentId } = quizConfigModal;
     const count = Math.min(Math.max(Number(selectedQuestionCount) || 10, 1), 20);
 
     setQuizLoading(true);
@@ -101,7 +101,7 @@ export default function Dashboard() {
         // general diagnostic or topic-filtered quiz
         const params = new URLSearchParams({ count: String(count) });
         if (topic) params.set("topic", topic);
-        if (subtopic) params.set("subtopic", subtopic);
+        if (tagId) params.set("tag_id", String(tagId));
         const url = `/api/quiz/start?${params.toString()}`;
         const data = await apiRequest(url, { method: "POST" });
         setActiveQuizSession({
@@ -378,9 +378,9 @@ export default function Dashboard() {
             {/* Weakness Breakdown Cards */}
             <WeaknessAnalysisCard
               gaps={gaps}
-              onStartRemediation={(topic, subtopic) =>
+              onStartRemediation={(topic, tagId) =>
                 topic
-                  ? openQuizConfig("topic", { topic, subtopic, defaultCount: 8 })
+                  ? openQuizConfig("topic", { topic, tagId, defaultCount: 8 })
                   : openQuizConfig("remediation", { defaultCount: 10 })
               }
             />
@@ -677,9 +677,6 @@ export default function Dashboard() {
           sessionData={activeQuizSession}
           onClose={() => {
             setActiveQuizSession(null);
-            loadDashboardData();
-          }}
-          onComplete={() => {
             loadDashboardData();
           }}
         />

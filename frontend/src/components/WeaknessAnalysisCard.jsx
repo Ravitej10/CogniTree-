@@ -136,7 +136,7 @@ export default function WeaknessAnalysisCard({ gaps, onStartRemediation }) {
               <div className="mt-4 pt-3 border-t border-[#F3D6B5] flex justify-end">
                 <button
                   type="button"
-                  onClick={() => onStartRemediation(gap.topic, gap.subtopic)}
+                  onClick={() => onStartRemediation(gap.topic, gap.tag_id)}
                   className="text-xs font-semibold text-[#2F6B4F] hover:underline flex items-center gap-1"
                 >
                   Practice this tag →

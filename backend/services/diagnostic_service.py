@@ -10,7 +10,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from core.models import Question, Response, QuizSession
+from core.models import ConceptTag, Question, Response, QuizSession
 from core.schemas import MatrixCell
 
 
@@ -20,6 +20,8 @@ def compute_matrix(db: Session, user_id: int) -> list[MatrixCell]:
     rows = (
         db.query(
             Question.topic,
+            Question.tag_id,
+            ConceptTag.name,
             Question.subtopic,
             Question.skill_type,
             func.count(Response.id).label("attempted"),
@@ -27,20 +29,28 @@ def compute_matrix(db: Session, user_id: int) -> list[MatrixCell]:
         )
         .join(Response, Response.question_id == Question.id)
         .join(QuizSession, QuizSession.id == Response.session_id)
+        .outerjoin(ConceptTag, ConceptTag.id == Question.tag_id)
         .filter(QuizSession.user_id == user_id)
-        .group_by(Question.topic, Question.subtopic, Question.skill_type)
+        .group_by(
+            Question.topic,
+            Question.tag_id,
+            ConceptTag.name,
+            Question.subtopic,
+            Question.skill_type,
+        )
         .all()
     )
 
     cells: list[MatrixCell] = []
-    for topic, subtopic, skill_type, attempted, correct in rows:
+    for topic, tag_id, tag_name, legacy_subtopic, skill_type, attempted, correct in rows:
         correct = correct or 0
         accuracy = correct / attempted if attempted else 0.0
         has_sufficient_evidence = attempted >= settings.diagnostic_min_attempts
         cells.append(
             MatrixCell(
                 topic=topic,
-                subtopic=subtopic,
+                tag_id=tag_id,
+                subtopic=tag_name or legacy_subtopic,
                 skill_type=skill_type.value if hasattr(skill_type, "value") else skill_type,
                 correct=correct,
                 attempted=attempted,

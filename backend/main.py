@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import auth, diagnostics, ingestion, questions, quiz
+from api import auth, diagnostics, ingestion, questions, quiz, tags
 from core.database import Base, engine
 from core import models
 
@@ -9,6 +9,12 @@ from core import models
 # here so `uvicorn app.main:app` works against a fresh database out of
 # the box. See app/db/init_db.sql for the equivalent as raw SQL.
 Base.metadata.create_all(bind=engine)
+
+# Preserve existing local SQLite data while introducing canonical tag IDs.
+from services.schema_migrations import backfill_existing_question_tags, ensure_question_tag_column
+
+ensure_question_tag_column(engine)
+backfill_existing_question_tags()
 
 app = FastAPI(title="CogniTree API", version="0.1.0")
 
@@ -30,6 +36,7 @@ app.include_router(ingestion.router)
 app.include_router(questions.router)
 app.include_router(quiz.router)
 app.include_router(diagnostics.router)
+app.include_router(tags.router)
 
 
 @app.get("/api/health")

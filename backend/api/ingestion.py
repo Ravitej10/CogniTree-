@@ -97,7 +97,7 @@ def reingest_document(
 @router.post("/{document_id}/generate-questions", response_model=list[QuestionWithAnswer])
 def generate_questions_from_doc(
     document_id: int,
-    count: int = Query(16, ge=1, le=20),
+    count: int = Query(12, ge=1, le=20),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
